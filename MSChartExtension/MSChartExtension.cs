@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using EventHandlerSupport;
 using System.Windows.Forms.DataVisualization.Charting;
 
@@ -160,6 +161,7 @@ namespace System.Windows.Forms.DataVisualization.Charting
 
         private static void ChartContext_Opening(object sender, CancelEventArgs e)
         {
+            // If the cxt menu is kept open, the sender might be wrong
             ContextMenuStrip menuStrip = (ContextMenuStrip)sender;
             Chart senderChart = (Chart)menuStrip.SourceControl;
             ChartData ptrData = ChartTool[senderChart];
@@ -215,6 +217,16 @@ namespace System.Windows.Forms.DataVisualization.Charting
                 }
             }
 
+            //menuStrip.AutoClose = false;
+            //menuStrip.Closing += (o, args) =>
+            //    {
+            //        if (args.CloseReason == ToolStripDropDownCloseReason.ItemClicked)
+            //        {
+            //            args.Cancel = true;
+            //            //menuStrip.Invalidate();
+            //            menuStrip.Refresh();
+            //        }
+            //    };
             SeriesCollection chartSeries = ((Chart)menuStrip.SourceControl).Series;
             foreach (Series ptrSeries in chartSeries)
             {
@@ -222,6 +234,10 @@ namespace System.Windows.Forms.DataVisualization.Charting
                 ToolStripMenuItem ptrMenuItem = (ToolStripMenuItem)ptrItem;
                 ptrMenuItem.Checked = ptrSeries.Enabled;
                 ptrItem.Tag = "Series";
+
+                //TODO Don't close menu (makes multi-selection of series possible)
+                //ptrMenuItem.DropDown.AutoClose = false;
+                //ptrMenuItem.DropDown.Closing += (o, args) => args.Cancel = true;
             }
         }
         private static void ChartContext_ItemClicked(object sender, ToolStripItemClickedEventArgs e)
@@ -248,7 +264,8 @@ namespace System.Windows.Forms.DataVisualization.Charting
 
             //Series enable / disable changed.
             SeriesCollection chartSeries = ((Chart)ptrMenuStrip.SourceControl).Series;
-            chartSeries[e.ClickedItem.Text].Enabled = !((ToolStripMenuItem)e.ClickedItem).Checked;
+            var clickedItem = ((ToolStripMenuItem) e.ClickedItem);
+            chartSeries[e.ClickedItem.Text].Enabled = !clickedItem.Checked;
         }
 
         #endregion
@@ -278,13 +295,15 @@ namespace System.Windows.Forms.DataVisualization.Charting
                 ChartToolPan = new ToolStripMenuItem("Pan");
                 ChartContextSeparator = new ToolStripSeparator();
 
-                MenuItems = new List<ToolStripItem>();
-                MenuItems.Add(ChartToolZoomOut);
-                MenuItems.Add(ChartToolZoomOutSeparator);
-                MenuItems.Add(ChartToolSelect);
-                MenuItems.Add(ChartToolZoom);
-                MenuItems.Add(ChartToolPan);
-                MenuItems.Add(ChartContextSeparator);
+                MenuItems = new List<ToolStripItem>
+                    {
+                        ChartToolZoomOut,
+                        ChartToolZoomOutSeparator,
+                        ChartToolSelect,
+                        ChartToolZoom,
+                        ChartToolPan,
+                        ChartContextSeparator
+                    };
             }
 
             public void Backup()
@@ -376,6 +395,7 @@ namespace System.Windows.Forms.DataVisualization.Charting
         {
             if (e.Button != System.Windows.Forms.MouseButtons.Left) return;
 
+            // Make note of the location of selection starting and ensure callbacks are wired up
             Chart ptrChart = (Chart)sender;
             ChartArea ptrChartArea = ptrChart.ChartAreas[0];
 
@@ -396,52 +416,60 @@ namespace System.Windows.Forms.DataVisualization.Charting
         }
         private static void ChartControl_MouseMove(object sender, MouseEventArgs e)
         {
+            // Trigger callback, if any.
+            // If zooming, extend zoom area rectangle. Pan if applicable.
             Chart ptrChart = (Chart)sender;
             double selX, selY;
-            selX = selY = 0;
+            ChartArea chartArea = ptrChart.ChartAreas[0];
             try
             {
-                selX = ptrChart.ChartAreas[0].AxisX.PixelPositionToValue(e.Location.X);
-                selY = ptrChart.ChartAreas[0].AxisY.PixelPositionToValue(e.Location.Y);
+                selX = chartArea.AxisX.PixelPositionToValue(e.Location.X);
+                selY = chartArea.AxisY.PixelPositionToValue(e.Location.Y);
 
                 if (ChartTool[ptrChart].CursorMovedCallback != null)
                     ChartTool[ptrChart].CursorMovedCallback(selX, selY);
             }
             catch (Exception) { /*ToDo: Set coordinate to 0,0 */ return; } //Handle exception when scrolled out of range.
 
+            if (!MouseDowned)
+            {
+                return;
+            }
             switch (ChartTool[ptrChart].ToolState)
             {
                 case MSChartExtensionToolState.Zoom:
+
                     #region [ Zoom Control ]
-                    if (MouseDowned)
-                    {
-                        ptrChart.ChartAreas[0].CursorX.SelectionEnd = selX;
-                        ptrChart.ChartAreas[0].CursorY.SelectionEnd = selY;
-                    }
+
+                    chartArea.CursorX.SelectionEnd = selX;
+                    chartArea.CursorY.SelectionEnd = selY;
+
                     #endregion
+
                     break;
 
                 case MSChartExtensionToolState.Pan:
+
                     #region [ Pan Control ]
-                    if (MouseDowned)
+
+                    //Pan Move - Valid only if view is zoomed
+                    if (chartArea.AxisX.ScaleView.IsZoomed ||
+                        chartArea.AxisY.ScaleView.IsZoomed)
                     {
-                        //Pan Move - Valid only if view is zoomed
-                        if (ptrChart.ChartAreas[0].AxisX.ScaleView.IsZoomed ||
-                            ptrChart.ChartAreas[0].AxisY.ScaleView.IsZoomed)
-                        {
-                            double dx = -selX + ptrChart.ChartAreas[0].CursorX.SelectionStart;
-                            double dy = -selY + ptrChart.ChartAreas[0].CursorY.SelectionStart;
+                        double dx = -selX + chartArea.CursorX.SelectionStart;
+                        double dy = -selY + chartArea.CursorY.SelectionStart;
 
-                            double newX = ptrChart.ChartAreas[0].AxisX.ScaleView.Position + dx;
-                            double newY = ptrChart.ChartAreas[0].AxisY.ScaleView.Position + dy;
-                            double newY2 = ptrChart.ChartAreas[0].AxisY2.ScaleView.Position + dy;
+                        double newX = chartArea.AxisX.ScaleView.Position + dx;
+                        double newY = chartArea.AxisY.ScaleView.Position + dy;
+                        double newY2 = chartArea.AxisY2.ScaleView.Position + dy;
 
-                            ptrChart.ChartAreas[0].AxisX.ScaleView.Scroll(newX);
-                            ptrChart.ChartAreas[0].AxisY.ScaleView.Scroll(newY);
-                            ptrChart.ChartAreas[0].AxisY2.ScaleView.Scroll(newY2);
-                        }
+                        chartArea.AxisX.ScaleView.Scroll(newX);
+                        chartArea.AxisY.ScaleView.Scroll(newY);
+                        chartArea.AxisY2.ScaleView.Scroll(newY2);
                     }
+
                     #endregion
+
                     break;
             }
         }
@@ -450,11 +478,14 @@ namespace System.Windows.Forms.DataVisualization.Charting
             if (e.Button != System.Windows.Forms.MouseButtons.Left) return;
             MouseDowned = false;
 
+            // If zooming, zoom area has been selected, so adjust axes
+            // If not zooming, do nothing
             Chart ptrChart = (Chart)sender;
             ChartArea ptrChartArea = ptrChart.ChartAreas[0];
             switch (ChartTool[ptrChart].ToolState)
             {
                 case MSChartExtensionToolState.Zoom:
+                    // TODO Try to zoom so nearest axes values are "nice" (i.e. not a lot of decimal places)
                     //Zoom area.
                     double XStart = ptrChartArea.CursorX.SelectionStart;
                     double XEnd = ptrChartArea.CursorX.SelectionEnd;
@@ -465,7 +496,7 @@ namespace System.Windows.Forms.DataVisualization.Charting
                     double YMin = ptrChartArea.AxisY.ValueToPosition(Math.Min(YStart, YEnd));
                     double YMax = ptrChartArea.AxisY.ValueToPosition(Math.Max(YStart, YEnd));
 
-                    if ((XStart == XEnd) && (YStart == YEnd)) return;
+                    if ((XStart == XEnd) || (YStart == YEnd)) return;
                     //Zoom operation
                     ptrChartArea.AxisX.ScaleView.Zoom(
                         Math.Min(XStart, XEnd), Math.Max(XStart, XEnd));
@@ -683,7 +714,36 @@ namespace System.Windows.Forms.DataVisualization.Charting
             sender.Annotations.Add(textAnn);
             if(!string.IsNullOrEmpty(name)) textAnn.Name = name;
         }
-        
+
+        /// <summary>
+        /// Get the data points closest to the specified point.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="x"></param>
+        /// <param name="y"></param>
+        /// <param name="xEpsilon"></param>
+        /// <param name="yEpsilon"></param>
+        /// <param name="epsilonCalculation">x, then y</param>
+        /// <returns>A lookup of Series.Name to nearby points in that series.</returns>
+        public static IDictionary<string, IEnumerable<DataPoint>> NearestPoints(this Chart sender, double x, double y, double xEpsilon=0.1, double yEpsilon=0.1, Func<Series, Tuple<double, double>>  epsilonCalculator = null)
+        {
+            var d = new Dictionary<string, IEnumerable<DataPoint>>();
+            foreach (Series series in sender.Series)
+            {
+                if (epsilonCalculator != null)
+                {
+                    var eps = epsilonCalculator(series);
+                    xEpsilon = eps.Item1;
+                    yEpsilon = eps.Item2;
+                }
+                var xNear = series.Points.Where(p => Math.Abs(p.XValue - x) < xEpsilon);
+                IEnumerable<DataPoint> pointsNear = xNear.Where(p => p.YValues.Any(
+                    val => Math.Abs(val - y) < yEpsilon));
+                d.Add(series.Name, pointsNear);
+            }
+            return d;
+        }
+
         #endregion
     }
 }

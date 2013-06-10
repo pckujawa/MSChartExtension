@@ -24,7 +24,7 @@ namespace MSChartExtensionDemo
         }
         private void PlotData()
         {
-            int DataSizeBase = 1000; //Increase this number to plot more points
+            int DataSizeBase = 10; //Increase this number to plot more points
 
             Series Ser1 = chart1.Series[0];
             for (int x = 0; x < (10 * DataSizeBase); x++)
@@ -68,6 +68,7 @@ namespace MSChartExtensionDemo
         }
 
         System.Diagnostics.Stopwatch watch = new System.Diagnostics.Stopwatch();
+        private readonly frmInfo _frmInfo = new frmInfo();
         private void StartStopWatch() { watch.Restart(); }
         private void CheckStopWatch(string message)
         {
@@ -78,7 +79,33 @@ namespace MSChartExtensionDemo
         private void ChartCursorSelected(double x, double y)
         {
             txtChartSelect.Text = x.ToString("F4") + ", " + y.ToString("F4");
+
+            // Display points nearest to selection if user wants
+            // If info popup is already open, just update its information
+            if (cboxNearestPoint.Checked)
+            {
+                IDictionary<string, IEnumerable<DataPoint>> nearestPoints = chart1.NearestPoints(x, y);
+                var s = new StringBuilder();
+                foreach (var pair in nearestPoints)
+                {
+                    s.Append(pair.Key);
+                    s.Append(": ");
+                    s.AppendLine(string.Join(",", pair.Value));
+                }
+
+                _frmInfo.Closing -= OnFrmInfoOnClosing;
+                _frmInfo.Closing += OnFrmInfoOnClosing;
+                _frmInfo.rtboxMain.Text = s.ToString();
+                _frmInfo.Show();
+            }
         }
+
+        private void OnFrmInfoOnClosing(object sender, CancelEventArgs args)
+        {
+            args.Cancel = true;
+            _frmInfo.Hide();
+        }
+
         private void ChartCursorMoved(double x, double y)
         {
             txtChartValue.Text = x.ToString("F4") + ", " + y.ToString("F4");
