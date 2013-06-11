@@ -20,6 +20,11 @@ namespace MSChartExtensionDemo
 
         private void Form1_Shown(object sender, EventArgs e)
         {
+            // Make axes intervals nicer (fewer decimals)
+            const string format = "{0.0000}"; // four decimals
+            ChartArea a = chart1.ChartAreas[0];
+            a.AxisX.LabelStyle.Format = format;
+            a.AxisY.LabelStyle.Format = format;
             chart1.EnableZoomAndPanControls(ChartCursorSelected, ChartCursorMoved);
         }
         private void PlotData()
