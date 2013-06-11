@@ -81,16 +81,18 @@ namespace MSChartExtensionDemo
             MessageBox.Show(message + " took " + watch.ElapsedMilliseconds.ToString() + "ms");
         }
 
-        private void ChartCursorSelected(double x, double y)
+        private void ChartCursorSelected(RectangleF selectionBox)
         {
-            txtChartSelect.Text = x.ToString("F4") + ", " + y.ToString("F4");
+            double xMin = selectionBox.Left, yMin = selectionBox.Bottom, xRange = selectionBox.Width, yRange = selectionBox.Height;
+            txtChartSelect.Text = xMin.ToString("F4") + ", " + yMin.ToString("F4");
 
             // Display points nearest to selection if user wants
             // If info popup is already open, just update its information
             if (cboxNearestPoint.Checked)
             {
                 IDictionary<string, IEnumerable<DataPoint>> nearestPoints = 
-                    chart1.NearestPoints(x, y, epsilonCalculator: EpsilonsFromSeries);
+                    chart1.NearestPoints(xMin, yMin, epsilonCalculator: EpsilonsFromSeries);
+                nearestPoints = chart1.PointsWithin(selectionBox);
                 var s = new StringBuilder();
                 foreach (var pair in nearestPoints)
                 {

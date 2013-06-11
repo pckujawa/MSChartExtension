@@ -1,8 +1,8 @@
 ﻿using System.Collections.Generic;
 using System.ComponentModel;
+using System.Drawing;
 using System.Linq;
 using EventHandlerSupport;
-using System.Windows.Forms.DataVisualization.Charting;
 
 namespace System.Windows.Forms.DataVisualization.Charting
 {
@@ -12,6 +12,11 @@ namespace System.Windows.Forms.DataVisualization.Charting
     /// <param name="x"></param>
     /// <param name="y"></param>
     public delegate void CursorPositionChanged(double x, double y);
+
+    /// <summary>
+    /// Function prototype for selection.
+    /// </summary>
+    public delegate void SelectionChanged(RectangleF selectionBox);
 
     /// <summary>
     /// MSChart Control Extension's States
@@ -69,7 +74,7 @@ namespace System.Windows.Forms.DataVisualization.Charting
         /// <param name="cursorMoved">Cursor moved callabck. Triggered when user move the mouse in chart area.</param>
         /// <remarks>Callback are optional.</remarks>
         public static void EnableZoomAndPanControls(this Chart sender,
-            CursorPositionChanged selectionChanged,
+            SelectionChanged selectionChanged,
             CursorPositionChanged cursorMoved)
         {
             if (ChartTool.ContainsKey(sender)) return;
@@ -281,7 +286,7 @@ namespace System.Windows.Forms.DataVisualization.Charting
             }
 
             public MSChartExtensionToolState ToolState { get; set; }
-            public CursorPositionChanged SelectionChangedCallback;
+            public SelectionChanged SelectionChangedCallback;
             public CursorPositionChanged CursorMovedCallback;
 
             private void CreateChartContextMenu()
@@ -365,23 +370,20 @@ namespace System.Windows.Forms.DataVisualization.Charting
         private static Dictionary<Chart, ChartData> ChartTool = new Dictionary<Chart, ChartData>();
         private static void SetChartControlState(Chart sender, MSChartExtensionToolState state)
         {
-            ChartTool[(Chart)sender].ToolState = state;
+            ChartTool[sender].ToolState = state;
+            sender.ChartAreas[0].CursorX.IsUserEnabled = false;
+            sender.ChartAreas[0].CursorY.IsUserEnabled = false;
             switch (state)
             {
                 case MSChartExtensionToolState.Select:
                     sender.Cursor = Cursors.Cross;
-                    sender.ChartAreas[0].CursorX.IsUserEnabled = true;
-                    sender.ChartAreas[0].CursorY.IsUserEnabled = true;
+                    //TODO Should we have Cursor.AutoScroll to pan if the area is zoomed?
                     break;
                 case MSChartExtensionToolState.Zoom:
                     sender.Cursor = Cursors.Cross;
-                    sender.ChartAreas[0].CursorX.IsUserEnabled = false;
-                    sender.ChartAreas[0].CursorY.IsUserEnabled = false;
                     break;
                 case MSChartExtensionToolState.Pan:
                     sender.Cursor = Cursors.Hand;
-                    sender.ChartAreas[0].CursorX.IsUserEnabled = false;
-                    sender.ChartAreas[0].CursorY.IsUserEnabled = false;
                     break;
             }
         }
@@ -403,18 +405,6 @@ namespace System.Windows.Forms.DataVisualization.Charting
             ptrChartArea.CursorY.SelectionStart = ptrChartArea.AxisY.PixelPositionToValue(e.Location.Y);
             ptrChartArea.CursorX.SelectionEnd = ptrChartArea.CursorX.SelectionStart;
             ptrChartArea.CursorY.SelectionEnd = ptrChartArea.CursorY.SelectionStart;
-
-            // We shouldn't be raising selection event when in zoom or pan mode
-            var chartData = ChartTool[ptrChart];
-            if (chartData.ToolState == MSChartExtensionToolState.Select)
-            {
-                if (chartData.SelectionChangedCallback != null)
-                {
-                    chartData.SelectionChangedCallback(
-                        ptrChartArea.CursorX.SelectionStart,
-                        ptrChartArea.CursorY.SelectionStart);
-                }
-            }
         }
         private static void ChartControl_MouseMove(object sender, MouseEventArgs e)
         {
@@ -439,6 +429,7 @@ namespace System.Windows.Forms.DataVisualization.Charting
             }
             switch (ChartTool[ptrChart].ToolState)
             {
+                case MSChartExtensionToolState.Select: // Create selection area (as in zoom)
                 case MSChartExtensionToolState.Zoom:
 
                     #region [ Zoom Control ]
@@ -484,31 +475,45 @@ namespace System.Windows.Forms.DataVisualization.Charting
             // If not zooming, do nothing
             Chart ptrChart = (Chart)sender;
             ChartArea ptrChartArea = ptrChart.ChartAreas[0];
+            //Zoom and select area.
+            float xStart = (float)ptrChartArea.CursorX.SelectionStart;
+            float xEnd = (float)ptrChartArea.CursorX.SelectionEnd;
+            float yStart = (float)ptrChartArea.CursorY.SelectionStart;
+            float yEnd = (float)ptrChartArea.CursorY.SelectionEnd;
+
+            float yMin = Math.Min(yStart, yEnd);
+            float yMax = Math.Max(yStart, yEnd);
+            float xMin = Math.Min(xStart, xEnd);
+            float xMax = Math.Max(xStart, xEnd);
             switch (ChartTool[ptrChart].ToolState)
             {
+                case MSChartExtensionToolState.Select:
+                    var chartData = ChartTool[ptrChart];
+                    float xRange = xMax - xMin;
+                    float yRange = yMax - yMin;
+                    if (chartData.SelectionChangedCallback != null)
+                    {
+                        // Rectangle is odd; need to construct with top left coordinates in mind
+                        chartData.SelectionChangedCallback(
+                            new RectangleF(xMin, yMax, xRange, -yRange));
+                    }
+                    break;
                 case MSChartExtensionToolState.Zoom:
-                    // TODO Try to zoom so nearest axes values are "nice" (i.e. not a lot of decimal places)
-                    //Zoom area.
-                    double XStart = ptrChartArea.CursorX.SelectionStart;
-                    double XEnd = ptrChartArea.CursorX.SelectionEnd;
-                    double YStart = ptrChartArea.CursorY.SelectionStart;
-                    double YEnd = ptrChartArea.CursorY.SelectionEnd;
-
                     //Zoom area for Y2 Axis
-                    double YMin = ptrChartArea.AxisY.ValueToPosition(Math.Min(YStart, YEnd));
-                    double YMax = ptrChartArea.AxisY.ValueToPosition(Math.Max(YStart, YEnd));
+                    double yMinPosition = ptrChartArea.AxisY.ValueToPosition(yMin);
+                    double yMaxPosition = ptrChartArea.AxisY.ValueToPosition(yMax);
 
-                    if ((XStart == XEnd) || (YStart == YEnd)) return;
+                    if ((xStart == xEnd) || (yStart == yEnd)) return;
                     //Zoom operation
                     ptrChartArea.AxisX.ScaleView.Zoom(
-                        Math.Min(XStart, XEnd), Math.Max(XStart, XEnd));
+                        xMin, xMax);
                     ptrChartArea.AxisY.ScaleView.Zoom(
-                        Math.Min(YStart, YEnd), Math.Max(YStart, YEnd));
+                        yMin, yMax);
                     ptrChartArea.AxisY2.ScaleView.Zoom(
-                        ptrChartArea.AxisY2.PositionToValue(YMin),
-                        ptrChartArea.AxisY2.PositionToValue(YMax));
+                        ptrChartArea.AxisY2.PositionToValue(yMinPosition),
+                        ptrChartArea.AxisY2.PositionToValue(yMaxPosition));
 
-                    //Clear selection
+                    //Clear selection (not done for Select so selection stays visible)
                     ptrChartArea.CursorX.SelectionStart = ptrChartArea.CursorX.SelectionEnd;
                     ptrChartArea.CursorY.SelectionStart = ptrChartArea.CursorY.SelectionEnd;
                     break;
@@ -735,11 +740,11 @@ namespace System.Windows.Forms.DataVisualization.Charting
             //TODO Specify pixel rectangle and transform to axis coords
             var d = new Dictionary<string, IEnumerable<DataPoint>>();
             //TODO Send zoomed range. If multiple axes for same dimension, take the smallest (so that selection is precise)
-            var scaleInfo = sender.ChartAreas.Select(
-                area => area.Axes.ToDictionary(
-                    axis => axis.AxisName, axis => axis.ScaleView)).ToList();
-            var axisScaleView = scaleInfo[0][AxisName.X];
-            double axRange = axisScaleView.ViewMaximum - axisScaleView.ViewMinimum;
+            //var scaleInfo = sender.ChartAreas.Select(
+            //    area => area.Axes.ToDictionary(
+            //        axis => axis.AxisName, axis => axis.ScaleView)).ToList();
+            //var axisScaleView = scaleInfo[0][AxisName.X];
+            //double axRange = axisScaleView.ViewMaximum - axisScaleView.ViewMinimum;
 
             foreach (Series series in sender.Series)
             {
@@ -753,7 +758,7 @@ namespace System.Windows.Forms.DataVisualization.Charting
 
                 // Use Manhattan (rectangular, as opposed to elliptical) distance
                 var xNear = series.Points.Where(p => Math.Abs(p.XValue - x) < xEpsilon);
-                
+
                 // Choose points where any y value is nearby
                 IEnumerable<DataPoint> pointsNear = xNear.Where(p => p.YValues.Any(
                     val => Math.Abs(val - y) < yEpsilon));
@@ -762,6 +767,35 @@ namespace System.Windows.Forms.DataVisualization.Charting
             return d;
         }
 
+        /// <summary>
+        /// Get the data points within the specified bounding box.
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="boundingBox"></param>
+        /// <returns>Lookup of the Series.Name and the points from that series (if any)
+        /// found.</returns>
+        public static Dictionary<string, IEnumerable<DataPoint>> PointsWithin(this Chart sender,
+            RectangleF boundingBox)
+        {
+            var d = new Dictionary<string, IEnumerable<DataPoint>>();
+            Func<double, double, double, bool> withinRange = (p, low, high) =>
+                p >= low && p <= high;
+            foreach (Series series in sender.Series)
+            {
+                // NOTE: Results are lazily-evaluated. This is nice because the user
+                //   doesn't pay the price if the results are never used. However,
+                //   it can make errors show up later instead of here. For debugging,
+                //   it might help to add .ToList() to each of these queries.
+                var xNear = series.Points.Where(
+                    p => withinRange(p.XValue, boundingBox.Left, boundingBox.Right));
+
+                // Choose points where any y value is nearby
+                IEnumerable<DataPoint> pointsNear = xNear.Where(p => p.YValues.Any(
+                    val => withinRange(val, boundingBox.Bottom, boundingBox.Top)));
+                d.Add(series.Name, pointsNear);
+            }
+            return d;
+        }
         #endregion
     }
 }
