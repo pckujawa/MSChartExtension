@@ -72,57 +72,55 @@ namespace System.Windows.Forms.DataVisualization.Charting
             CursorPositionChanged selectionChanged,
             CursorPositionChanged cursorMoved)
         {
-            if (!ChartTool.ContainsKey(sender))
+            if (ChartTool.ContainsKey(sender)) return;
+            ChartTool[sender] = new ChartData(sender);
+            ChartData ptrChartData = ChartTool[sender];
+            ptrChartData.Backup();
+            ptrChartData.SelectionChangedCallback = selectionChanged;
+            ptrChartData.CursorMovedCallback = cursorMoved;
+
+            //Populate Context menu
+            Chart ptrChart = sender;
+            if (ptrChart.ContextMenuStrip == null)
             {
-                ChartTool[sender] = new ChartData(sender);
-                ChartData ptrChartData = ChartTool[sender];
-                ptrChartData.Backup();
-                ptrChartData.SelectionChangedCallback = selectionChanged;
-                ptrChartData.CursorMovedCallback = cursorMoved;
-
-                //Populate Context menu
-                Chart ptrChart = sender;
-                if (ptrChart.ContextMenuStrip == null)
-                {
-                    //Context menu is empty, use ChartContextMenuStrip directly
-                    ptrChart.ContextMenuStrip = new ContextMenuStrip();
-                    ptrChart.ContextMenuStrip.Items.AddRange(ChartTool[ptrChart].MenuItems.ToArray());
-                }
-                else
-                {
-                    //User assigned context menu to chart. Merge current menu with ChartContextMenuStrip.
-                    ContextMenuStrip newMenu = new ContextMenuStrip();
-                    newMenu.Items.AddRange(ChartTool[sender].MenuItems.ToArray());
-
-                    foreach (object ptrItem in ChartTool[sender].ContextMenuStrip.Items)
-                    {
-                        if (ptrItem is ToolStripMenuItem) newMenu.Items.Add(((ToolStripMenuItem)ptrItem).Clone());
-                        else if (ptrItem is ToolStripSeparator) newMenu.Items.Add(new ToolStripSeparator());
-                    }
-                    newMenu.Items.Add(new ToolStripSeparator());
-                    ptrChart.ContextMenuStrip = newMenu;
-                    ptrChart.ContextMenuStrip.AddHandlers(ChartTool[sender].ContextMenuStrip);
-                }
-                ptrChart.ContextMenuStrip.Opening += ChartContext_Opening;
-                ptrChart.ContextMenuStrip.ItemClicked += ChartContext_ItemClicked;
-                ptrChart.MouseDown += ChartControl_MouseDown;
-                ptrChart.MouseMove += ChartControl_MouseMove;
-                ptrChart.MouseUp += ChartControl_MouseUp;
-
-                //Override settings.
-                ChartArea ptrChartArea = ptrChart.ChartAreas[0];
-                ptrChartArea.CursorX.AutoScroll = false;
-                ptrChartArea.CursorX.Interval = 1e-06;
-                ptrChartArea.CursorY.AutoScroll = false;
-                ptrChartArea.CursorY.Interval = 1e-06;
-
-                ptrChartArea.AxisX.ScrollBar.Enabled = false;
-                ptrChartArea.AxisX2.ScrollBar.Enabled = false;
-                ptrChartArea.AxisY.ScrollBar.Enabled = false;
-                ptrChartArea.AxisY2.ScrollBar.Enabled = false;
-
-                SetChartControlState(sender, MSChartExtensionToolState.Select);
+                //Context menu is empty, use ChartContextMenuStrip directly
+                ptrChart.ContextMenuStrip = new ContextMenuStrip();
+                ptrChart.ContextMenuStrip.Items.AddRange(ChartTool[ptrChart].MenuItems.ToArray());
             }
+            else
+            {
+                //User assigned context menu to chart. Merge current menu with ChartContextMenuStrip.
+                ContextMenuStrip newMenu = new ContextMenuStrip();
+                newMenu.Items.AddRange(ChartTool[sender].MenuItems.ToArray());
+
+                foreach (object ptrItem in ChartTool[sender].ContextMenuStrip.Items)
+                {
+                    if (ptrItem is ToolStripMenuItem) newMenu.Items.Add(((ToolStripMenuItem)ptrItem).Clone());
+                    else if (ptrItem is ToolStripSeparator) newMenu.Items.Add(new ToolStripSeparator());
+                }
+                newMenu.Items.Add(new ToolStripSeparator());
+                ptrChart.ContextMenuStrip = newMenu;
+                ptrChart.ContextMenuStrip.AddHandlers(ChartTool[sender].ContextMenuStrip);
+            }
+            ptrChart.ContextMenuStrip.Opening += ChartContext_Opening;
+            ptrChart.ContextMenuStrip.ItemClicked += ChartContext_ItemClicked;
+            ptrChart.MouseDown += ChartControl_MouseDown;
+            ptrChart.MouseMove += ChartControl_MouseMove;
+            ptrChart.MouseUp += ChartControl_MouseUp;
+
+            //Override settings.
+            ChartArea ptrChartArea = ptrChart.ChartAreas[0];
+            ptrChartArea.CursorX.AutoScroll = false;
+            ptrChartArea.CursorX.Interval = 1e-06;
+            ptrChartArea.CursorY.AutoScroll = false;
+            ptrChartArea.CursorY.Interval = 1e-06;
+
+            ptrChartArea.AxisX.ScrollBar.Enabled = false;
+            ptrChartArea.AxisX2.ScrollBar.Enabled = false;
+            ptrChartArea.AxisY.ScrollBar.Enabled = false;
+            ptrChartArea.AxisY2.ScrollBar.Enabled = false;
+
+            SetChartControlState(sender, MSChartExtensionToolState.Select);
         }
 
         /// <summary>
@@ -264,7 +262,7 @@ namespace System.Windows.Forms.DataVisualization.Charting
 
             //Series enable / disable changed.
             SeriesCollection chartSeries = ((Chart)ptrMenuStrip.SourceControl).Series;
-            var clickedItem = ((ToolStripMenuItem) e.ClickedItem);
+            var clickedItem = ((ToolStripMenuItem)e.ClickedItem);
             chartSeries[e.ClickedItem.Text].Enabled = !clickedItem.Checked;
         }
 
@@ -406,13 +404,17 @@ namespace System.Windows.Forms.DataVisualization.Charting
             ptrChartArea.CursorX.SelectionEnd = ptrChartArea.CursorX.SelectionStart;
             ptrChartArea.CursorY.SelectionEnd = ptrChartArea.CursorY.SelectionStart;
 
-            if (ChartTool[ptrChart].SelectionChangedCallback != null)
+            // We shouldn't be raising selection event when in zoom or pan mode
+            var chartData = ChartTool[ptrChart];
+            if (chartData.ToolState == MSChartExtensionToolState.Select)
             {
-                ChartTool[ptrChart].SelectionChangedCallback(
-                    ptrChartArea.CursorX.SelectionStart,
-                    ptrChartArea.CursorY.SelectionStart);
+                if (chartData.SelectionChangedCallback != null)
+                {
+                    chartData.SelectionChangedCallback(
+                        ptrChartArea.CursorX.SelectionStart,
+                        ptrChartArea.CursorY.SelectionStart);
+                }
             }
-
         }
         private static void ChartControl_MouseMove(object sender, MouseEventArgs e)
         {
@@ -528,7 +530,7 @@ namespace System.Windows.Forms.DataVisualization.Charting
         /// <param name="name">Annotation name.</param>
         /// <param name="lineWidth">Line width</param>
         /// <param name="lineStyle">Line style</param>
-        public static void DrawHorizontalLine(this Chart sender, double y, 
+        public static void DrawHorizontalLine(this Chart sender, double y,
             Drawing.Color lineColor, string name = "",
             int lineWidth = 1, ChartDashStyle lineStyle = ChartDashStyle.Solid)
         {
@@ -592,7 +594,7 @@ namespace System.Windows.Forms.DataVisualization.Charting
         /// <param name="name">Annotation name.</param>
         /// <param name="lineWidth">Line width</param>
         /// <param name="lineStyle">Line style</param>
-        public static void DrawRectangle(this Chart sender, double x, double y, 
+        public static void DrawRectangle(this Chart sender, double x, double y,
             double width, double height,
             Drawing.Color lineColor, string name = "",
             int lineWidth = 1, ChartDashStyle lineStyle = ChartDashStyle.Solid)
@@ -622,7 +624,7 @@ namespace System.Windows.Forms.DataVisualization.Charting
                 width = width - (x - ptrAxis.Maximum);
                 x = ptrAxis.Maximum;
             }
-            if ((x + width) > ptrAxis.Maximum) width = ptrAxis.Maximum -x;
+            if ((x + width) > ptrAxis.Maximum) width = ptrAxis.Maximum - x;
 
             ptrAxis = sender.ChartAreas[0].AxisY;
             if (y < ptrAxis.Minimum)
@@ -693,9 +695,9 @@ namespace System.Windows.Forms.DataVisualization.Charting
         /// <param name="textColor">Text color.</param>
         /// <param name="name">Annotation name.</param>
         /// <param name="textStyle">Style of text.</param>
-        public static void AddText(this Chart sender, string text, 
+        public static void AddText(this Chart sender, string text,
             double x, double y,
-            Drawing.Color textColor, string name = "", 
+            Drawing.Color textColor, string name = "",
             TextStyle textStyle = TextStyle.Default)
         {
             TextAnnotation textAnn = new TextAnnotation();
@@ -712,7 +714,7 @@ namespace System.Windows.Forms.DataVisualization.Charting
             textAnn.TextStyle = textStyle;
 
             sender.Annotations.Add(textAnn);
-            if(!string.IsNullOrEmpty(name)) textAnn.Name = name;
+            if (!string.IsNullOrEmpty(name)) textAnn.Name = name;
         }
 
         /// <summary>
@@ -723,20 +725,36 @@ namespace System.Windows.Forms.DataVisualization.Charting
         /// <param name="y"></param>
         /// <param name="xEpsilon"></param>
         /// <param name="yEpsilon"></param>
-        /// <param name="epsilonCalculation">x, then y</param>
+        /// <param name="epsilonCalculator">x, then y</param>
         /// <returns>A lookup of Series.Name to nearby points in that series.</returns>
-        public static IDictionary<string, IEnumerable<DataPoint>> NearestPoints(this Chart sender, double x, double y, double xEpsilon=0.1, double yEpsilon=0.1, Func<Series, Tuple<double, double>>  epsilonCalculator = null)
+        public static IDictionary<string, IEnumerable<DataPoint>> NearestPoints(
+            this Chart sender, double x, double y,
+            double xEpsilon = 0.1, double yEpsilon = 0.1,
+            Func<Series, Tuple<double, double>> epsilonCalculator = null)
         {
+            //TODO Specify pixel rectangle and transform to axis coords
             var d = new Dictionary<string, IEnumerable<DataPoint>>();
+            //TODO Send zoomed range. If multiple axes for same dimension, take the smallest (so that selection is precise)
+            var scaleInfo = sender.ChartAreas.Select(
+                area => area.Axes.ToDictionary(
+                    axis => axis.AxisName, axis => axis.ScaleView)).ToList();
+            var axisScaleView = scaleInfo[0][AxisName.X];
+            double axRange = axisScaleView.ViewMaximum - axisScaleView.ViewMinimum;
+
             foreach (Series series in sender.Series)
             {
+                // If user specified a way to calculate epsilons for x and y, use it
                 if (epsilonCalculator != null)
                 {
-                    var eps = epsilonCalculator(series);
+                    Tuple<double, double> eps = epsilonCalculator(series);
                     xEpsilon = eps.Item1;
                     yEpsilon = eps.Item2;
                 }
+
+                // Use Manhattan (rectangular, as opposed to elliptical) distance
                 var xNear = series.Points.Where(p => Math.Abs(p.XValue - x) < xEpsilon);
+                
+                // Choose points where any y value is nearby
                 IEnumerable<DataPoint> pointsNear = xNear.Where(p => p.YValues.Any(
                     val => Math.Abs(val - y) < yEpsilon));
                 d.Add(series.Name, pointsNear);

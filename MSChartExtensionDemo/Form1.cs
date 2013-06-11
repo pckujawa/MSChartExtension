@@ -84,7 +84,8 @@ namespace MSChartExtensionDemo
             // If info popup is already open, just update its information
             if (cboxNearestPoint.Checked)
             {
-                IDictionary<string, IEnumerable<DataPoint>> nearestPoints = chart1.NearestPoints(x, y);
+                IDictionary<string, IEnumerable<DataPoint>> nearestPoints = 
+                    chart1.NearestPoints(x, y, epsilonCalculator: EpsilonsFromSeries);
                 var s = new StringBuilder();
                 foreach (var pair in nearestPoints)
                 {
@@ -98,6 +99,21 @@ namespace MSChartExtensionDemo
                 _frmInfo.rtboxMain.Text = s.ToString();
                 _frmInfo.Show();
             }
+        }
+
+        private Tuple<double, double> EpsilonsFromSeries(Series series)
+        {
+            // Helper to find the range of values for a particular axis' points
+            Func<string, double> range = axis =>
+                {
+                    DataPoint max = series.Points.FindMaxByValue(axis);
+                    DataPoint min = series.Points.FindMinByValue(axis);
+                    return max.GetValueByName(axis) - min.GetValueByName(axis);
+                };
+
+            // In this case (because we know the shape of the data beforehand), 
+            //   be more precise in X than in Y
+            return new Tuple<double, double>(0.01*range("X"), 0.05*range("Y"));
         }
 
         private void OnFrmInfoOnClosing(object sender, CancelEventArgs args)
