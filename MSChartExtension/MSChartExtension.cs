@@ -100,7 +100,8 @@ namespace System.Windows.Forms.DataVisualization.Charting
 
                 foreach (object ptrItem in ChartTool[sender].ContextMenuStrip.Items)
                 {
-                    if (ptrItem is ToolStripMenuItem) newMenu.Items.Add(((ToolStripMenuItem)ptrItem).Clone());
+                    var item = ptrItem as ToolStripMenuItem;
+                    if (item != null) newMenu.Items.Add(item.Clone());
                     else if (ptrItem is ToolStripSeparator) newMenu.Items.Add(new ToolStripSeparator());
                 }
                 newMenu.Items.Add(new ToolStripSeparator());
@@ -155,9 +156,7 @@ namespace System.Windows.Forms.DataVisualization.Charting
         {
             if (!ChartTool.ContainsKey(sender))
                 return MSChartExtensionToolState.Unknown;
-            else
-                return ChartTool[sender].ToolState;
-
+            return ChartTool[sender].ToolState;
         }
 
         #region [ ContextMenu - Event Handler ]
