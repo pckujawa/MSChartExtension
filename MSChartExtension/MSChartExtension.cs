@@ -121,9 +121,9 @@ namespace System.Windows.Forms.DataVisualization.Charting
             ptrChartArea.CursorX.Interval = 1e-06;
             ptrChartArea.CursorY.AutoScroll = false;
             ptrChartArea.CursorY.Interval = 1e-06;
-                ptrChart.MouseWheel += ChartControl_MouseWheel;
-                ptrChart.KeyDown += ChartControl_KeyDown;
-                ptrChart.KeyUp += ChartControl_KeyUp;
+            ptrChart.MouseWheel += ChartControl_MouseWheel;
+            ptrChart.KeyDown += ChartControl_KeyDown;
+            ptrChart.KeyUp += ChartControl_KeyUp;
 
             ptrChartArea.AxisX.ScrollBar.Enabled = false;
             ptrChartArea.AxisX2.ScrollBar.Enabled = false;
@@ -503,29 +503,37 @@ namespace System.Windows.Forms.DataVisualization.Charting
                     }
                     break;
                 case MSChartExtensionToolState.Zoom:
-                    //Zoom area for Y2 Axis
-                    double yMinPosition = ptrChartArea.AxisY.ValueToPosition(yMin);
-                    double yMaxPosition = ptrChartArea.AxisY.ValueToPosition(yMax);
-
-                    if ((xStart == xEnd) || (yStart == yEnd)) return;
-                    //Zoom operation
-                    ptrChartArea.AxisX.ScaleView.Zoom(
-                        xMin, xMax);
-                    ptrChartArea.AxisY.ScaleView.Zoom(
-                        yMin, yMax);
-                    ptrChartArea.AxisY2.ScaleView.Zoom(
-                        ptrChartArea.AxisY2.PositionToValue(yMinPosition),
-                        ptrChartArea.AxisY2.PositionToValue(yMaxPosition));
-
-                    //Clear selection (not done for Select so selection stays visible)
-                    ptrChartArea.CursorX.SelectionStart = ptrChartArea.CursorX.SelectionEnd;
-                    ptrChartArea.CursorY.SelectionStart = ptrChartArea.CursorY.SelectionEnd;
+                    ZoomTo(ptrChartArea, xMin, xMax, yMin, yMax);
                     break;
 
                 case MSChartExtensionToolState.Pan:
                     break;
             }
         }
+
+        public static void ZoomTo(this ChartArea ptrChartArea, double xMin, double xMax, double yMin, double yMax)
+        {
+            // TODO: We may have a problem with coordinates of the arguments. Seems that they need to come from ChartArea.Cursor properties
+            //Zoom area for Y2 Axis
+            double yMinPosition = ptrChartArea.AxisY.ValueToPixelPosition(yMin);
+            double yMaxPosition = ptrChartArea.AxisY.ValueToPixelPosition(yMax);
+
+            if ((xMin == xMax) || (yMin == yMax)) return;
+            //Zoom operation
+            ptrChartArea.AxisX.ScaleView.Zoom(
+                xMin, xMax);
+            ptrChartArea.AxisY.ScaleView.Zoom(
+                yMin, yMax);
+            // Is scaling of Y2 really necessary? How about X2?
+            //ptrChartArea.AxisY2.ScaleView.Zoom(
+            //    ptrChartArea.AxisY2.PositionToValue(yMinPosition),
+            //    ptrChartArea.AxisY2.PositionToValue(yMaxPosition));
+
+            //Clear selection (not done for Select so selection stays visible)
+            ptrChartArea.CursorX.SelectionStart = ptrChartArea.CursorX.SelectionEnd;
+            ptrChartArea.CursorY.SelectionStart = ptrChartArea.CursorY.SelectionEnd;
+        }
+
         private static void ChartControl_MouseWheel(object sender, MouseEventArgs e)
         {
             ChartData ptrData = ChartTool[(Chart)sender];
@@ -533,6 +541,7 @@ namespace System.Windows.Forms.DataVisualization.Charting
             {
                 ChartArea ptrChartArea = ((Chart)sender).ChartAreas[0];
                 Debug.WriteLine("Wheel delta = " + e.Delta.ToString());
+                // Typical values: up = +120, down = -120
                 double midX = (ptrChartArea.AxisX.Maximum + ptrChartArea.AxisX.Minimum) / 2;
                 double midY = (ptrChartArea.AxisY.Maximum + ptrChartArea.AxisY.Minimum) / 2;
 
