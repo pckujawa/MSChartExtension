@@ -2,6 +2,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
+using System.Linq;
 using EventHandlerSupport;
 using System.Windows.Forms.DataVisualization.Charting;
 
@@ -84,7 +85,7 @@ namespace System.Windows.Forms.DataVisualization.Charting
         public static void EnableZoomAndPanControls(this Chart sender,
             CursorPositionChanged selectionChanged,
             CursorPositionChanged cursorMoved,
-            ZoomChanged zoomChanged=null)
+            ZoomChanged zoomChanged = null)
         {
             if (!ChartTool.ContainsKey(sender))
             {
@@ -254,40 +255,40 @@ namespace System.Windows.Forms.DataVisualization.Charting
         }
         private static void ChartContext_ItemClicked(object sender, ToolStripItemClickedEventArgs e)
         {
+            // TODO: Centralize all state-related code (and strings describing state)
+            var textToStateLookup = new Dictionary<string, MSChartExtensionToolState>
+                {
+                    {"Select", MSChartExtensionToolState.Select},
+                    {"Zoom", MSChartExtensionToolState.Zoom},
+                    {"Zoom X", MSChartExtensionToolState.ZoomX},
+                    {"Pan", MSChartExtensionToolState.Pan}
+                };
             ContextMenuStrip ptrMenuStrip = (ContextMenuStrip)sender;
             var chart = (Chart)ptrMenuStrip.SourceControl;
-            switch (e.ClickedItem.Text)
+            ToolStripItem clickedItem = e.ClickedItem;
+            if (clickedItem.Text == "Zoom Out")
             {
-                case "Select":
-                    SetChartControlState(chart, MSChartExtensionToolState.Select);
-                    break;
-                case "Zoom":
-                    SetChartControlState(chart, MSChartExtensionToolState.Zoom);
-                    break;
-                case "Zoom X":
-                    SetChartControlState(chart, MSChartExtensionToolState.ZoomX);
-                    break;
-                case "Pan":
-                    SetChartControlState(chart, MSChartExtensionToolState.Pan);
-                    break;
-                case "Zoom Out":
-                    {
-                        Chart ptrChart = chart;
-                        WindowMessagesNativeMethods.SuspendDrawing(ptrChart);
-                        ptrChart.ChartAreas[0].AxisX.ScaleView.ZoomReset();
-                        ptrChart.ChartAreas[0].AxisY.ScaleView.ZoomReset();
-                        ptrChart.ChartAreas[0].AxisY2.ScaleView.ZoomReset();
-                        WindowMessagesNativeMethods.ResumeDrawing(ptrChart);
-                    }
-                    break;
+                ChartArea area = chart.ChartAreas[0];
+                WindowMessagesNativeMethods.SuspendDrawing(chart);
+                area.AxisX.ScaleView.ZoomReset();
+                area.AxisX2.ScaleView.ZoomReset();
+                area.AxisY.ScaleView.ZoomReset();
+                area.AxisY2.ScaleView.ZoomReset();
+                WindowMessagesNativeMethods.ResumeDrawing(chart);
+                ChartData data = GetDataForChart(chart);
+                data.ZoomChangedCallback(ExtentsFromCurrentView(area));
+            }
+            else
+            {
+                SetChartControlState(chart, textToStateLookup[clickedItem.Text]);
             }
 
-            if (e.ClickedItem.Tag == null) return;
-            if (e.ClickedItem.Tag.ToString() != "Series") return;
+            if (clickedItem.Tag == null) return;
+            if (clickedItem.Tag.ToString() != "Series") return;
 
             //Series enable / disable changed.
             SeriesCollection chartSeries = chart.Series;
-            chartSeries[e.ClickedItem.Text].Enabled = !((ToolStripMenuItem)e.ClickedItem).Checked;
+            chartSeries[clickedItem.Text].Enabled = !((ToolStripMenuItem)clickedItem).Checked;
         }
 
         #endregion
@@ -456,10 +457,11 @@ namespace System.Windows.Forms.DataVisualization.Charting
             Chart ptrChart = (Chart)sender;
             double selX, selY;
             selX = selY = 0;
+            ChartArea area = ptrChart.ChartAreas[0];
             try
             {
-                selX = ptrChart.ChartAreas[0].AxisX.PixelPositionToValue(e.Location.X);
-                selY = ptrChart.ChartAreas[0].AxisY.PixelPositionToValue(e.Location.Y);
+                selX = area.AxisX.PixelPositionToValue(e.Location.X);
+                selY = area.AxisY.PixelPositionToValue(e.Location.Y);
 
                 if (ChartTool[ptrChart].CursorMovedCallback != null)
                     ChartTool[ptrChart].CursorMovedCallback(selX, selY);
@@ -472,15 +474,16 @@ namespace System.Windows.Forms.DataVisualization.Charting
                     #region [ Zoom Control ]
                     if (MouseDowned)
                     {
-                        ptrChart.ChartAreas[0].CursorX.SelectionEnd = selX;
-                        ptrChart.ChartAreas[0].CursorY.SelectionEnd = selY;
+                        area.CursorX.SelectionEnd = selX;
+                        area.CursorY.SelectionEnd = selY;
                     }
                     #endregion
                     break;
                 case MSChartExtensionToolState.ZoomX:
                     if (MouseDowned)
                     {
-                        ptrChart.ChartAreas[0].CursorX.SelectionEnd = selX;
+                        area.CursorX.SelectionEnd = selX;
+                        //TODO Might need to set Y selection here
                     }
                     break;
 
@@ -489,25 +492,26 @@ namespace System.Windows.Forms.DataVisualization.Charting
                     if (MouseDowned)
                     {
                         //Pan Move - Valid only if view is zoomed
-                        if (ptrChart.ChartAreas[0].AxisX.ScaleView.IsZoomed ||
-                            ptrChart.ChartAreas[0].AxisY.ScaleView.IsZoomed)
+                        if (area.AxisX.ScaleView.IsZoomed ||
+                            area.AxisY.ScaleView.IsZoomed)
                         {
-                            double dx = -selX + ptrChart.ChartAreas[0].CursorX.SelectionStart;
-                            double dy = -selY + ptrChart.ChartAreas[0].CursorY.SelectionStart;
+                            double dx = -selX + area.CursorX.SelectionStart;
+                            double dy = -selY + area.CursorY.SelectionStart;
 
-                            double newX = ptrChart.ChartAreas[0].AxisX.ScaleView.Position + dx;
-                            double newY = ptrChart.ChartAreas[0].AxisY.ScaleView.Position + dy;
-                            double newY2 = ptrChart.ChartAreas[0].AxisY2.ScaleView.Position + dy;
+                            double newX = area.AxisX.ScaleView.Position + dx;
+                            double newY = area.AxisY.ScaleView.Position + dy;
+                            double newY2 = area.AxisY2.ScaleView.Position + dy;
 
-                            ptrChart.ChartAreas[0].AxisX.ScaleView.Scroll(newX);
-                            ptrChart.ChartAreas[0].AxisY.ScaleView.Scroll(newY);
-                            ptrChart.ChartAreas[0].AxisY2.ScaleView.Scroll(newY2);
+                            area.AxisX.ScaleView.Scroll(newX);
+                            area.AxisY.ScaleView.Scroll(newY);
+                            area.AxisY2.ScaleView.Scroll(newY2);
                         }
                     }
                     #endregion
                     break;
             }
         }
+
         private static void ChartControl_MouseUp(object sender, MouseEventArgs e)
         {
             if (e.Button != System.Windows.Forms.MouseButtons.Left) return;
@@ -521,32 +525,26 @@ namespace System.Windows.Forms.DataVisualization.Charting
             {
                 case MSChartExtensionToolState.Zoom:
                 case MSChartExtensionToolState.ZoomX:
-                    //Zoom area.
-                    double XStart = ptrChartArea.CursorX.SelectionStart;
-                    double XEnd = ptrChartArea.CursorX.SelectionEnd;
-                    double YStart = ptrChartArea.CursorY.SelectionStart;
-                    double YEnd = ptrChartArea.CursorY.SelectionEnd;
+                    var extents = ExtentsFromSelectionOrView(ptrChartArea);
+                    RectangleF bounds = extents.PrimaryExtents;
+                    if (IsZoomedTooSmall(bounds))
+                        return;
 
-                    //Zoom area for Y Axis
-                    double bottom = Math.Min(YStart, YEnd);
-                    double top = Math.Max(YStart, YEnd);
-                    double YMin = ptrChartArea.AxisY.ValueToPosition(bottom);
-                    double YMax = ptrChartArea.AxisY.ValueToPosition(top);
-                    
-                    if ((XStart == XEnd) && (YStart == YEnd)) return;
-                    
+                    float left = bounds.Left;
+                    float right = bounds.Right;
+                    float top = bounds.Top;
+                    float bottom = bounds.Bottom;
+
                     //Zoom operation
-                    double left = Math.Min(XStart, XEnd);
-                    double right = Math.Max(XStart, XEnd);
                     ptrChartArea.AxisX.ScaleView.Zoom(left, right);
 
                     if (state == MSChartExtensionToolState.Zoom)
                     {
                         ptrChartArea.AxisY.ScaleView.Zoom(
                                         bottom, top);
-                        ptrChartArea.AxisY2.ScaleView.Zoom(
-                            ptrChartArea.AxisY2.PositionToValue(YMin),
-                            ptrChartArea.AxisY2.PositionToValue(YMax));
+                        //ptrChartArea.AxisY2.ScaleView.Zoom(
+                        //    ptrChartArea.AxisY2.PositionToValue(ptrChartArea.AxisY.ValueToPosition(bottom)),
+                        //    ptrChartArea.AxisY2.PositionToValue(ptrChartArea.AxisY.ValueToPosition(top)));
 
                     }
 
@@ -556,8 +554,7 @@ namespace System.Windows.Forms.DataVisualization.Charting
                     //ptrChartArea.CursorX.SelectionStart = ptrChartArea.CursorX.SelectionEnd;
                     //ptrChartArea.CursorY.SelectionStart = ptrChartArea.CursorY.SelectionEnd;
 
-                    //TODO: Notify of change everywhere else we zoom
-                    data.ZoomChangedCallback(ExtentsFromCursorPositionOrCursorSelectionValues(left, top, right, bottom));
+                    data.ZoomChangedCallback(extents);
                     break;
 
                 case MSChartExtensionToolState.Pan:
@@ -565,13 +562,94 @@ namespace System.Windows.Forms.DataVisualization.Charting
             }
         }
 
-        private static ChartExtents ExtentsFromCursorPositionOrCursorSelectionValues(double left, double top, double right,
+        private static bool IsZoomedTooSmall(RectangleF bounds)
+        {
+            // ReSharper disable CompareOfFloatsByEqualityOperator
+            // NOTE: Width or height could be negative
+            return (new[] { bounds.Width, bounds.Height })
+                .Any(f => f == 0);
+            // ReSharper restore CompareOfFloatsByEqualityOperator
+        }
+
+        private static ChartExtents ExtentsFromCurrentView(ChartArea ptrChartArea)
+        {
+            double left;
+            double right;
+            double bottom;
+            double top;
+            GetViewMinMax(ptrChartArea.AxisX, out left, out right);
+            GetViewMinMax(ptrChartArea.AxisY, out bottom, out top);
+            return ExtentsFromDataCoordinates(left, top, right, bottom);
+        }
+
+        private static ChartExtents ExtentsFromSelectionOrView(ChartArea ptrChartArea)
+        {
+            double left;
+            double right;
+            double bottom;
+            double top;
+            bool hasXSelection = TryGetSelectionBounds(ptrChartArea.CursorX, out left, out right);
+            bool hasYSelection = TryGetSelectionBounds(ptrChartArea.CursorY, out bottom, out top);
+
+            // If selection wasn't enabled for an axis (e.g. for ZoomX), 
+            //  use the min/max for the whole view
+            if (!hasXSelection || !hasYSelection)
+            {
+                RectangleF r = ExtentsFromCurrentView(ptrChartArea).PrimaryExtents;
+                if (!hasXSelection)
+                {
+                    left = r.Left;
+                    right = r.Right;
+                }
+                if (!hasYSelection)
+                {
+                    top = r.Top;
+                    bottom = r.Bottom;
+                }
+            }
+
+            // Old way. We don't seem to need to use ValueToPosition though.
+            //double YMin = ptrChartArea.AxisY.ValueToPosition(bottom);
+            //double YMax = ptrChartArea.AxisY.ValueToPosition(top);
+
+            return ExtentsFromDataCoordinates(left, top, right, bottom);
+        }
+
+        /// <summary>
+        /// Gets the min and max selected values for the cursor.
+        /// </summary>
+        /// <param name="cursor">The cursor.</param>
+        /// <param name="min">The min.</param>
+        /// <param name="max">The max.</param>
+        private static bool TryGetSelectionBounds(Cursor cursor, out double min, out double max)
+        {
+            //BUG: Why isn't selection being set for Y axis during ZoomX?
+            var start = cursor.SelectionStart;
+            var end = cursor.SelectionEnd;
+            min = Math.Min(start, end);
+            max = Math.Max(start, end);
+            return Math.Abs(max - min) > 1e-8;
+        }
+
+        private static void GetMinMax(Axis axis, out double xmin, out double xmax)
+        {
+            xmin = axis.Minimum;
+            xmax = axis.Maximum;
+        }
+
+        private static void GetViewMinMax(Axis axis, out double viewMin, out double viewMax)
+        {
+            viewMin = axis.ScaleView.ViewMinimum;
+            viewMax = axis.ScaleView.ViewMaximum;
+        }
+
+        private static ChartExtents ExtentsFromDataCoordinates(double left, double top, double right,
                                                                                      double bottom)
         {
-//NOTE: Height needs to be negative because we always 
+            //NOTE: Height needs to be negative because we always 
             //  specify the *top* left corner
-            var rect = new RectangleF((float) left, (float) top,
-                                      (float) (right - left), (float) (bottom - top));
+            var rect = new RectangleF((float)left, (float)top,
+                                      (float)(right - left), (float)(bottom - top));
             var extents = new ChartExtents
                 {
                     PrimaryExtents = rect
